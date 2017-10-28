@@ -96,12 +96,15 @@ public class PlayerActivity extends Activity {
                 videoType = videoType.toUpperCase();
                 if (videoType.equals("HLS")) {
                     exoPlayer.prepare(prepareDataSource(videoURL, true));
+                    exoPlayer.setPlayWhenReady(true);
                 }
             } else {
                 exoPlayer.prepare(prepareDataSource(videoURL, false));
+                exoPlayer.setPlayWhenReady(true);
             }
         } else {
             exoPlayer.prepare(prepareDataSource(videoURL, subtitleURL));
+            exoPlayer.setPlayWhenReady(true);
         }
 
         scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
