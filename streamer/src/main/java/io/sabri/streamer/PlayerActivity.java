@@ -34,6 +34,10 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 public class PlayerActivity extends Activity {
 
     private static final String VIDEO_NAME = "VIDEO_NAME";
@@ -43,6 +47,8 @@ public class PlayerActivity extends Activity {
 
     SimpleExoPlayerView exoPlayerView;
     SimpleExoPlayer exoPlayer;
+
+    ScheduledExecutorService scheduledExecutorService;
 
     long duration;
 
@@ -57,12 +63,25 @@ public class PlayerActivity extends Activity {
 
     }
 
+    public static void play(@NonNull Context context, @Nullable String name, @NonNull String videoURL, @Nullable String subtitleURL) {
+
+        Intent intent = new Intent(context, PlayerActivity.class);
+        intent.putExtra(VIDEO_NAME, videoURL);
+        intent.putExtra(VIDEO_URL, videoURL);
+        intent.putExtra(SUBTITLE_URL, subtitleURL);
+        intent.putExtra(VIDEO_TYPE, "");
+        context.startActivity(intent);
+
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_player);
+
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         String videoURL = getIntent().getStringExtra(VIDEO_URL);
         String subtitleURL = getIntent().getStringExtra(SUBTITLE_URL);
@@ -74,6 +93,12 @@ public class PlayerActivity extends Activity {
 
         exoPlayer.prepare(prepareDataSource(videoURL, subtitleURL, videoType));
 
+        scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                duration = exoPlayer.getCurrentPosition();
+            }
+        }, 0, 10, TimeUnit.SECONDS);
     }
 
     private SimpleExoPlayer createPlayer() {
@@ -100,28 +125,30 @@ public class PlayerActivity extends Activity {
 
         if (!videoType.isEmpty()) {
 
-            MediaSource mediaSource = new HlsMediaSource(Uri.parse(videoURL), dataSourceFactory, null, null);
-
-            return mediaSource;
-
+            return new HlsMediaSource(Uri.parse(videoURL), dataSourceFactory, null, null);
         } else {
 
-            // This is the MediaSource representing the media to be played.
-            MediaSource videoSource = new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
+            if (subtitleURL.isEmpty()) {
+                return new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
+            } else {
+                // This is the MediaSource representing the media to be played.
+                MediaSource videoSource = new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
 
-            // Build the subtitle MediaSource.
-            Format subtitleFormat = Format.createTextSampleFormat(
-                    null, // An identifier for the track. May be null.
-                    MimeTypes.APPLICATION_SUBRIP, // The mime type. Must be set correctly.
-                    C.TRACK_TYPE_TEXT, // Selection flags for the track.
-                    "Arabic"); // The subtitle language. May be null.
-            MediaSource subtitleSource = new SingleSampleMediaSource(Uri.parse(subtitleURL), dataSourceFactory, subtitleFormat, C.TIME_UNSET);
+                // Build the subtitle MediaSource.
+                Format subtitleFormat = Format.createTextSampleFormat(
+                        null, // An identifier for the track. May be null.
+                        MimeTypes.APPLICATION_SUBRIP, // The mime type. Must be set correctly.
+                        C.TRACK_TYPE_TEXT, // Selection flags for the track.
+                        "Arabic"); // The subtitle language. May be null.
+                MediaSource subtitleSource = new SingleSampleMediaSource(Uri.parse(subtitleURL), dataSourceFactory, subtitleFormat, C.TIME_UNSET);
 
-            // Plays the video with the side loaded subtitle.
-            MergingMediaSource mergedSource = new MergingMediaSource(videoSource, subtitleSource);
+                // Plays the video with the side loaded subtitle.
+                MergingMediaSource mergedSource = new MergingMediaSource(videoSource, subtitleSource);
 
-            return mergedSource;
+                return mergedSource;
+            }
         }
+
     }
 
     @Override
