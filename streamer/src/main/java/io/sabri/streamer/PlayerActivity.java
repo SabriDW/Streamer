@@ -34,6 +34,10 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 public class PlayerActivity extends Activity {
 
     private static final String VIDEO_NAME = "VIDEO_NAME";
@@ -43,6 +47,8 @@ public class PlayerActivity extends Activity {
 
     SimpleExoPlayerView exoPlayerView;
     SimpleExoPlayer exoPlayer;
+
+    ScheduledExecutorService scheduledExecutorService;
 
     long duration;
 
@@ -57,12 +63,25 @@ public class PlayerActivity extends Activity {
 
     }
 
+    public static void play(@NonNull Context context, @Nullable String name, @NonNull String videoURL, @Nullable String subtitleURL) {
+
+        Intent intent = new Intent(context, PlayerActivity.class);
+        intent.putExtra(VIDEO_NAME, videoURL);
+        intent.putExtra(VIDEO_URL, videoURL);
+        intent.putExtra(SUBTITLE_URL, subtitleURL);
+        intent.putExtra(VIDEO_TYPE, "");
+        context.startActivity(intent);
+
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_player);
+
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         String videoURL = getIntent().getStringExtra(VIDEO_URL);
         String subtitleURL = getIntent().getStringExtra(SUBTITLE_URL);
@@ -72,8 +91,28 @@ public class PlayerActivity extends Activity {
         exoPlayer = createPlayer();
         exoPlayerView.setPlayer(exoPlayer);
 
-        exoPlayer.prepare(prepareDataSource(videoURL, subtitleURL, videoType));
+        if (subtitleURL.isEmpty()) {
+            if (!videoType.isEmpty()) {
+                videoType = videoType.toUpperCase();
+                if (videoType.equals("HLS")) {
+                    exoPlayer.prepare(prepareDataSource(videoURL, true));
+                    exoPlayer.setPlayWhenReady(true);
+                }
+            } else {
+                exoPlayer.prepare(prepareDataSource(videoURL, false));
+                exoPlayer.setPlayWhenReady(true);
+            }
+        } else {
+            exoPlayer.prepare(prepareDataSource(videoURL, subtitleURL));
+            exoPlayer.setPlayWhenReady(true);
+        }
 
+        scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                duration = exoPlayer.getCurrentPosition();
+            }
+        }, 0, 10, TimeUnit.SECONDS);
     }
 
     private SimpleExoPlayer createPlayer() {
@@ -88,7 +127,7 @@ public class PlayerActivity extends Activity {
     }
 
     @NonNull
-    private MediaSource prepareDataSource(String videoURL, String subtitleURL, String videoType) {
+    private MergingMediaSource prepareDataSource(String videoURL, String subtitleURL) {
         // Measures bandwidth during playback. Can be null if not required.
         DefaultBandwidthMeter defaultBandwidthMeter = new DefaultBandwidthMeter();
 
@@ -98,30 +137,40 @@ public class PlayerActivity extends Activity {
         // Produces Extractor instances for parsing the media data.
         ExtractorsFactory extractorsFactory = new DefaultExtractorsFactory();
 
-        if (!videoType.isEmpty()) {
+        // This is the MediaSource representing the media to be played.
+        MediaSource videoSource = new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
 
-            MediaSource mediaSource = new HlsMediaSource(Uri.parse(videoURL), dataSourceFactory, null, null);
+        // Build the subtitle MediaSource.
+        Format subtitleFormat = Format.createTextSampleFormat(
+                null, // An identifier for the track. May be null.
+                MimeTypes.APPLICATION_SUBRIP, // The mime type. Must be set correctly.
+                C.TRACK_TYPE_TEXT, // Selection flags for the track.
+                "Arabic"); // The subtitle language. May be null.
+        MediaSource subtitleSource = new SingleSampleMediaSource(Uri.parse(subtitleURL), dataSourceFactory, subtitleFormat, C.TIME_UNSET);
 
-            return mediaSource;
+        // Plays the video with the side loaded subtitle.
+        MergingMediaSource mergedSource = new MergingMediaSource(videoSource, subtitleSource);
 
+        return mergedSource;
+    }
+
+    @NonNull
+    private MediaSource prepareDataSource(String videoURL, boolean videoType) {
+        // Measures bandwidth during playback. Can be null if not required.
+        DefaultBandwidthMeter defaultBandwidthMeter = new DefaultBandwidthMeter();
+
+        // Produces DataSource instances through which media data is loaded.
+        DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(this, Util.getUserAgent(this, "STREAMER"), defaultBandwidthMeter);
+
+        // Produces Extractor instances for parsing the media data.
+        ExtractorsFactory extractorsFactory = new DefaultExtractorsFactory();
+
+        if (videoType) {
+            return new HlsMediaSource(Uri.parse(videoURL), dataSourceFactory, null, null);
         } else {
-
-            // This is the MediaSource representing the media to be played.
-            MediaSource videoSource = new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
-
-            // Build the subtitle MediaSource.
-            Format subtitleFormat = Format.createTextSampleFormat(
-                    null, // An identifier for the track. May be null.
-                    MimeTypes.APPLICATION_SUBRIP, // The mime type. Must be set correctly.
-                    C.TRACK_TYPE_TEXT, // Selection flags for the track.
-                    "Arabic"); // The subtitle language. May be null.
-            MediaSource subtitleSource = new SingleSampleMediaSource(Uri.parse(subtitleURL), dataSourceFactory, subtitleFormat, C.TIME_UNSET);
-
-            // Plays the video with the side loaded subtitle.
-            MergingMediaSource mergedSource = new MergingMediaSource(videoSource, subtitleSource);
-
-            return mergedSource;
+            return new ExtractorMediaSource(Uri.parse(videoURL), dataSourceFactory, extractorsFactory, null, null);
         }
+
     }
 
     @Override
