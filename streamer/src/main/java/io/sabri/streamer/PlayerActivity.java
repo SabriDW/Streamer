@@ -34,9 +34,8 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class PlayerActivity extends Activity {
 
@@ -48,7 +47,7 @@ public class PlayerActivity extends Activity {
     SimpleExoPlayerView exoPlayerView;
     SimpleExoPlayer exoPlayer;
 
-    ScheduledExecutorService scheduledExecutorService;
+    Timer timer;
 
     long duration;
 
@@ -79,9 +78,10 @@ public class PlayerActivity extends Activity {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_player);
 
-        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        timer = new Timer();
 
         String videoURL = getIntent().getStringExtra(VIDEO_URL);
         String subtitleURL = getIntent().getStringExtra(SUBTITLE_URL);
@@ -107,12 +107,14 @@ public class PlayerActivity extends Activity {
             exoPlayer.setPlayWhenReady(true);
         }
 
-        scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
-            @Override
-            public void run() {
-                duration = exoPlayer.getCurrentPosition();
-            }
-        }, 0, 10, TimeUnit.SECONDS);
+        if (videoType.isEmpty()) {
+            timer.scheduleAtFixedRate(new TimerTask() {
+                @Override
+                public void run() {
+                    duration = exoPlayer.getCurrentPosition();
+                }
+            }, 0, 1000);
+        }
     }
 
     private SimpleExoPlayer createPlayer() {
